@@ -89,6 +89,14 @@
         0x00, 0x00, 0x20, 0x00
     ]);
 
+    // send this before startEpilogueOfflinebomb and before endEpilogue
+    // prettier-ignore
+    const offlinebombFix = new Uint8Array([
+        0xFE, 0xFE, 0x09, 0xBC,
+        0x00, 0x00
+    ]);
+
+
     // prettier-ignore
     const endPrologue = new Uint8Array([
         0xFE, 0xFE, 0x09, 0xB3,
@@ -131,6 +139,7 @@
     let bluetoothDevice;
     let txdCharacteristic;
     let rxdCharacteristic;
+    let isNewFirmware = false;
     let isStarted = false;
 
     function updateUi(stage) {
@@ -158,6 +167,7 @@
 
     async function disconnect() {
         if (bluetoothDevice) await bluetoothDevice.gatt.disconnect();
+        isNewFirmware = false;
         isStarted = false;
         updateUi("standby");
     }
@@ -211,8 +221,11 @@
                     await txdCharacteristic.writeValue(makeStartEpilogueLegacy(bluetoothDevice.name));
                     break;
                 case 0xB1: // do nothing; an early response for start epilogue (B0) for new firmwares
+                    isNewFirmware = true;
                     break;
                 case 0xAE: // start prologue ok; send start epilogue (Offlinebomb)
+                    isNewFirmware = true;
+                    await txdCharacteristic.writeValue(offlinebombFix);
                     await txdCharacteristic.writeValue(startEpilogueOfflinebomb);
                     break;
                 case 0xAF: // not implemented; AE/AF key authentication for new firmwares
@@ -268,6 +281,7 @@
 
     async function end() {
         try {
+            if (isNewFirmware) await txdCharacteristic.writeValue(offlinebombFix);
             await txdCharacteristic.writeValue(endPrologue);
         } catch (error) {
             handleBluetoothError(error);
