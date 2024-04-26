@@ -150,8 +150,7 @@
     async function start() {
         try {
             bluetoothDevice = await navigator.bluetooth.requestDevice({
-                filters: [{ namePrefix: "Water" }],
-                optionalServices: [window.navigator.userAgent.match(/Bluefy/) ? "generic_access" : 0xF1F0] // workaround for Bluefy
+                filters: [{ services: [0xF1F0] }],
             });
             updateUi("pending");
             const server = await bluetoothDevice.gatt.connect();
