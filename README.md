@@ -19,5 +19,11 @@
 - 👍 开放源代码
 - 🛠 更多特性开发中
 
+## ♿ 引流位
+- [celesWuff/wateremu](https://github.com/celesWuff/wateremu) 蓝牙水控器 模拟器
+- [FudanDeDRM](https://gist.github.com/celesWuff/f54c02c2d73c40f9250c21fdc6fb4630) Demo Code for Retrieving Later Publicly Published, Internally Accessible Dissertations and Theses from Fudan University
+- [celesWuff/drinkctl](https://github.com/celesWuff/drinkctl) “点点” app 扫码饮水的开源实现
+- [celesWuff/ktpWarp](https://github.com/celesWuff/ktpwarp-server) 课堂派自动签到
+
 ## 📜 开源许可
 基于 [MIT license](https://opensource.org/licenses/MIT) 许可进行开源。
