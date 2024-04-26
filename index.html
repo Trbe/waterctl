@@ -243,7 +243,11 @@
     async function start() {
         try {
             bluetoothDevice = await navigator.bluetooth.requestDevice({
-                filters: [{ services: [0xF1F0] }],
+                // https://github.com/WebBluetoothCG/web-bluetooth/issues/234
+                filters: (Array.from("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                    .map(c => ({ namePrefix: c })))
+                    .concat({ name: "" }),
+                optionalServices: [window.navigator.userAgent.match(/Bluefy/) ? "generic_access" : 0xF1F0] // workaround for Bluefy
             });
 
             updateUi("pending");
