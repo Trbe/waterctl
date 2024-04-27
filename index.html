@@ -226,6 +226,7 @@
                 case 0xAE: // start prologue ok; send start epilogue (Offlinebomb)
                     isNewFirmware = true;
                     await txdCharacteristic.writeValue(offlinebombFix);
+                    await new Promise(_ => setTimeout(_, 1000));
                     await txdCharacteristic.writeValue(startEpilogueOfflinebomb);
                     break;
                 case 0xAF: // not implemented; AE/AF key authentication for new firmwares
