@@ -142,6 +142,7 @@
     let rxdCharacteristic;
     let isNewFirmware = false;
     let isStarted = false;
+    let pendingStartEpilogueLegacy; // workaround for determining new firmware, see handleRxdNotifications
     const logs = [];
 
     function bufferToHexString(array) {
@@ -248,14 +249,17 @@
 
         try {
             switch (dType) {
-                case 0xB0: // start prolouge ok; send start epilogue (legacy)
-                    await txdCharacteristic.writeValue(makeStartEpilogueLegacy(bluetoothDevice.name));
+                case 0xB0: // start prologue ok; send start epilogue (legacy) if this is an old firmware
+                case 0xB1:
+                    if (isNewFirmware) break;
+                    pendingStartEpilogueLegacy = setTimeout(() => {
+                        txdCharacteristic.writeValue(makeStartEpilogueLegacy(bluetoothDevice.name));
+                    }, 1000);
                     break;
-                case 0xB1: // do nothing; an early response for start epilogue (B0) for new firmwares
+                case 0xAE: // receiving an unlock request (AE), this is a new firmware; send start epilogue (Offlinebomb)
                     isNewFirmware = true;
-                    break;
-                case 0xAE: // start prologue ok; send start epilogue (Offlinebomb)
-                    isNewFirmware = true;
+                    // if we get an AE, we cancel the pending legacy start epilogue
+                    clearTimeout(pendingStartEpilogueLegacy);
                     await txdCharacteristic.writeValue(offlinebombFix);
                     await new Promise(_ => setTimeout(_, 1000));
                     await txdCharacteristic.writeValue(startEpilogueOfflinebomb);
