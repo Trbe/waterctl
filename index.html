@@ -64,6 +64,7 @@
         <header>出现错误</header>
         <form method="dialog">
             <p id="dialog-content"></p>
+            <pre id="dialog-debug-container"><code id="dialog-debug-content"></code></pre>
             <menu style="display: flex; justify-content: flex-end;">
                 <button onclick="succeeded = false">好</button>
             </menu>
@@ -141,6 +142,24 @@
     let rxdCharacteristic;
     let isNewFirmware = false;
     let isStarted = false;
+    const logs = [];
+
+    function bufferToHexString(array) {
+        return Array.from(new Uint8Array(array)).map((x) => x.toString(16).padStart(2, "0")).join("").toUpperCase();
+    }
+
+    // .writeValue logging
+    if (typeof BluetoothRemoteGATTCharacteristic !== "undefined") {
+        const originalWriteValue = BluetoothRemoteGATTCharacteristic.prototype.writeValue;
+        BluetoothRemoteGATTCharacteristic.prototype.writeValue = new Proxy(originalWriteValue, {
+            apply: (target, thisArg, argArray) => {
+                const log = "TXD: " + bufferToHexString(argArray[0]);
+                console.log(log);
+                logs.push(log);
+                return Reflect.apply(target, thisArg, argArray);
+            }
+        });
+    }
 
     function updateUi(stage) {
         const mainButton = document.getElementById("main-button");
@@ -169,6 +188,7 @@
         if (bluetoothDevice) await bluetoothDevice.gatt.disconnect();
         isNewFirmware = false;
         isStarted = false;
+        logs.length = 0;
         updateUi("standby");
     }
 
@@ -183,14 +203,15 @@
         }
 
         const dialogContent = document.getElementById("dialog-content");
+        const dialogDebugContainer = document.getElementById("dialog-debug-container");
+        const dialogDebugContent = document.getElementById("dialog-debug-content");
 
         if (e.match(/Unknown RXD dType/)) {
-            const badRxdResponse = e.split("dType: ")[1];
-            dialogContent.innerText = "未知数据: " + badRxdResponse + "\n\n可能不影响使用。\n\n这是一个 Bug，请截图并";
-            dialogContent.innerHTML += "<a href='https://github.com/celesWuff/waterctl' target='_blank'>反馈给开发者</a>。";
+            dialogContent.innerText = "接收到未知数据。可能不影响使用。\n\n(这可能是一个 Bug，请截图并";
+            dialogContent.innerHTML += "<a href='https://github.com/celesWuff/waterctl' target='_blank'>反馈给开发者</a>。）";
         } else if (e.match(/User denied the browser permission/)) {
             dialogContent.innerText = "蓝牙权限遭拒。\n\n请前往手机设置，授予浏览器“位置信息”权限。\n此权限不会用于定位，详情请参考源代码仓库内的";
-            dialogContent.innerHTML += "<a href='https://github.com/celesWuff/waterctl/blob/gh-pages/FAQ.md'>“疑难解答”</a>。";
+            dialogContent.innerHTML += "<a href='https://github.com/celesWuff/waterctl/blob/gh-pages/FAQ.md' target='_blank'>“疑难解答”</a>。";
             isFatalError = true;
         } else if (e.match(/NetworkError/)) {
             dialogContent.innerText = "连接不稳定，无法与水控器建立连接。\n请重试。";
@@ -204,6 +225,12 @@
             dialogContent.innerHTML += "<a href='https://github.com/celesWuff/waterctl' target='_blank'>反馈给开发者</a>。）";
             isFatalError = true;
         }
+        
+        dialogDebugContainer.style.display = "none";
+        if (logs.length != 0) {
+            dialogDebugContainer.style.display = "block";
+            dialogDebugContent.innerText = "调试信息：\n" + logs.join("\n");
+        }
 
         document.getElementById("dialog").showModal();
         if (isFatalError) {
@@ -214,6 +241,10 @@
     async function handleRxdNotifications(event) {
         const value = event.target.value;
         const dType = value.getUint8(3);
+
+        const log = "RXD: " + bufferToHexString(value.buffer);
+        console.log(log);
+        logs.push(log);
 
         try {
             switch (dType) {
@@ -245,8 +276,7 @@
                 case 0xBC:
                     break;
                 default:
-                    const badRxdResponse = Array.from(new Uint8Array(value.buffer)).map((x) => x.toString(16).padStart(2, "0")).join("").toUpperCase();
-                    throw new Error("Unknown RXD dType: " + badRxdResponse);
+                    throw new Error("Unknown RXD dType");
                     break;
             }
         } catch (error) {
