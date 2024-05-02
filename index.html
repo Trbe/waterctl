@@ -345,6 +345,9 @@
 
     async function end() {
       try {
+        updateUi("pending");
+        await txdCharacteristic.writeValue(offlinebombFix);
+        await new Promise((_) => setTimeout(_, 1000));
         await txdCharacteristic.writeValue(endPrologue);
         setupTimeoutMessage();
       } catch (error) {
