@@ -77,7 +77,7 @@
   </body>
 
   <script>
-    const VERSION = "1.1.5";
+    const VERSION = "1.1.6";
 
     // PAYLOADS
     // prettier-ignore
@@ -145,9 +145,8 @@
     let bluetoothDevice;
     let txdCharacteristic;
     let rxdCharacteristic;
-    let isNewFirmware = false;
     let isStarted = false;
-    let pendingStartEpilogueLegacy; // workaround for determining new firmware, see handleRxdNotifications
+    let pendingStartEpilogueLegacy; // send legacy start epilogue if Offlinebomb fails, see handleRxdNotifications
     let pendingTimeoutMessage; // if we don't get a response in time, we should show an error message
     const logs = [];
 
@@ -196,9 +195,9 @@
 
     async function disconnect() {
       if (bluetoothDevice) await bluetoothDevice.gatt.disconnect();
-      isNewFirmware = false;
       isStarted = false;
       logs.length = 0;
+      clearTimeout(pendingStartEpilogueLegacy);
       clearTimeout(pendingTimeoutMessage);
       updateUi("standby");
     }
@@ -268,24 +267,19 @@
         // https://github.com/prettier/prettier/issues/5158
         // prettier-ignore
         switch (dType) {
-          case 0xB0: // start prologue ok; send start epilogue (legacy) if this is an old firmware
+          case 0xB0: // start prologue ok; try Offlinebomb first
           case 0xB1:
-            if (isNewFirmware) break;
+            await txdCharacteristic.writeValue(offlinebombFix);
+            await new Promise((_) => setTimeout(_, 1000));
+            await txdCharacteristic.writeValue(startEpilogueOfflinebomb);
+            // if we don't get a reply, it means that the firmware has stripped BB/BC offline functionality
+            // we'll try the legacy start epilogue
             pendingStartEpilogueLegacy = setTimeout(() => {
               txdCharacteristic.writeValue(makeStartEpilogueLegacy(bluetoothDevice.name));
             }, 1000);
             break;
-          case 0xAE: // receiving an unlock request (AE), this is a new firmware; send start epilogue (Offlinebomb)
-            isNewFirmware = true;
-            // if we get an AE, we cancel the pending legacy start epilogue
-            clearTimeout(pendingStartEpilogueLegacy);
-            await txdCharacteristic.writeValue(offlinebombFix);
-            await new Promise((_) => setTimeout(_, 1000));
-            await txdCharacteristic.writeValue(startEpilogueOfflinebomb);
-            break;
-          case 0xAF: // not implemented; AE/AF key authentication for new firmwares
-            break;
           case 0xB2: // start ok; update ui
+            clearTimeout(pendingStartEpilogueLegacy);
             clearTimeout(pendingTimeoutMessage);
             isStarted = true;
             updateUi("ok");
@@ -294,6 +288,8 @@
             await txdCharacteristic.writeValue(endEpilogue);
             disconnect();
             break;
+          case 0xAE: // not implemented; AE/AF key authentication for new firmwares
+          case 0xAF:
           case 0xB5: // no effect; ignore
           case 0xB8:
           case 0xBA:
