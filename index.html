@@ -271,6 +271,8 @@
       document.getElementById("dialog").showModal();
 
       if (isFatalError) disconnect();
+
+      throw error;
     }
 
     async function handleRxdNotifications(event) {
