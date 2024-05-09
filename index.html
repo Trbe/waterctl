@@ -77,7 +77,7 @@
   </body>
 
   <script>
-    const VERSION = "1.1.7";
+    const VERSION = "1.1.8";
 
     // PAYLOADS
     // prettier-ignore
@@ -164,7 +164,7 @@
     let txdCharacteristic;
     let rxdCharacteristic;
     let isStarted = false;
-    let pendingStartEpilogueLegacy; // send legacy start epilogue if Offlinebomb fails, see handleRxdNotifications
+    let pendingStartEpilogueLegacy; // workaround for determining new firmware, see handleRxdNotifications
     let pendingTimeoutMessage; // if we don't get a response in time, we should show an error message
     const logs = [];
 
@@ -287,16 +287,17 @@
         // https://github.com/prettier/prettier/issues/5158
         // prettier-ignore
         switch (dType) {
-          case 0xB0: // start prologue ok; try Offlinebomb first
+          case 0xB0: // start prologue ok; try legacy start epilogue first, since Offlinebomb may deadlock some old firmwares
           case 0xB1:
-            await txdCharacteristic.writeValue(offlinebombFix);
-            await new Promise((_) => setTimeout(_, 300));
-            await txdCharacteristic.writeValue(makeStartEpilogueOfflinebomb());
-            // if we don't get a reply, it means that the firmware has stripped BB/BC offline functionality
-            // we'll try the legacy start epilogue
+            clearTimeout(pendingStartEpilogueLegacy);
             pendingStartEpilogueLegacy = setTimeout(() => {
               txdCharacteristic.writeValue(makeStartEpilogueLegacy(bluetoothDevice.name));
             }, 1000);
+            break;
+          case 0xAE: // receiving an unlock request (AE), this is a new firmware; send start epilogue (Offlinebomb)
+            await txdCharacteristic.writeValue(offlinebombFix);
+            await new Promise((_) => setTimeout(_, 300));
+            await txdCharacteristic.writeValue(makeStartEpilogueOfflinebomb());
             break;
           case 0xB2: // start ok; update ui
             clearTimeout(pendingStartEpilogueLegacy);
@@ -308,8 +309,7 @@
             await txdCharacteristic.writeValue(endEpilogue);
             disconnect();
             break;
-          case 0xAE: // not implemented; AE/AF key authentication for new firmwares
-          case 0xAF:
+          case 0xAF: // not implemented; AE/AF key authentication for new firmwares
           case 0xB5: // no effect; ignore
           case 0xB8:
           case 0xBA:
