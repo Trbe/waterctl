@@ -77,7 +77,7 @@
   </body>
 
   <script>
-    const VERSION = "1.1.8";
+    const VERSION = "1.1.9";
 
     // PAYLOADS
     // prettier-ignore
@@ -105,6 +105,8 @@
       0x00, 0x00
     ]);
 
+    // CRC-16/ChangGong
+    // width=16 poly=0x8005 init=0xe808 refin=true refout=true xorout=0x0000
     function crc16changgong(data) {
       let crc = 0x1017;
       for (let i = 0; i < data.length; i++) {
@@ -155,7 +157,7 @@
         0xFE, 0xFE, 0x09, 0xB2,
         0x01, checksum & 0xFF, checksum >> 8, 0xFF,
         0x00, 0x00, 0x00, ...dt, // 6 bytes of datetime
-        0x6C, 0x30, 0x00
+        0x0F, 0x27, 0x00
       ]);
     }
 
