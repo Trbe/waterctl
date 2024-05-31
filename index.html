@@ -80,18 +80,25 @@
     const VERSION = "1.1.9";
 
     // PAYLOADS
+
+    // send this first, then wait for B0, B1, or AE
+    // B0 and B1 contain the status of the previous session, AE is a key authentication request
+    // AE will only show up in new firmwares
     // prettier-ignore
     const startPrologue = new Uint8Array([
       0xFE, 0xFE, 0x09, 0xB0,
       0x01, 0x01, 0x00, 0x00
     ]);
 
+    // when ending the session, send this then wait for B3
+    // B3 contains the status of this session
     // prettier-ignore
     const endPrologue = new Uint8Array([
       0xFE, 0xFE, 0x09, 0xB3,
       0x00, 0x00
     ]);
 
+    // after receiving B3, send this then disconnect
     // prettier-ignore
     const endEpilogue = new Uint8Array([
       0xFE, 0xFE, 0x09, 0xB4,
@@ -172,6 +179,7 @@
     }
 
     function makeStartEpilogueLegacy(deviceName) {
+    // the one true command to begin a session
       const checksum = crc16changgong(deviceName.slice(-5));
       const ri = makeRandomUserId();
       const dt = makeDatetimeArray();
