@@ -98,10 +98,21 @@
       0x00, 0x00
     ]);
 
-    // send this before startEpilogueOfflinebomb and before endEpilogue
+    // send this before startEpilogueOfflinebomb and before endEpilogue, or if BC is received
+    // used to clear the previous unfinished offline (BB) session
+    // receiving BC is a strong signal that sending this is necessary,
+    // but if Offlinebomb will be used it will be safer to send this before any other command
     // prettier-ignore
     const offlinebombFix = new Uint8Array([
       0xFE, 0xFE, 0x09, 0xBC,
+      0x00, 0x00
+    ]);
+
+    // send this if BA is received
+    // BA is related to user info uploading, but we will never actually upload anything
+    // prettier-ignore
+    const baAck = new Uint8Array([
+      0xFE, 0xFE, 0x09, 0xBA,
       0x00, 0x00
     ]);
 
@@ -254,6 +265,10 @@
         dialogContent.innerText = "接收到未知数据。可能不影响使用。\n\n(这可能是一个 Bug，请截图并";
         dialogContent.innerHTML += "<a href='https://github.com/celesWuff/waterctl' target='_blank'>反馈给开发者</a>。）";
         showLogs = true;
+      } else if (e.match(/WATERCTL INTERNAL Refused/)) {
+        dialogContent.innerText = "水控器拒绝启动。\n\n这可能是一个 Bug，请截图并";
+        dialogContent.innerHTML += "<a href='https://github.com/celesWuff/waterctl' target='_blank'>反馈给开发者</a>。";
+        showLogs = true;
       } else if (e.match(/WATERCTL INTERNAL Operation timed out/)) {
         dialogContent.innerText = "等待时间似乎太长了。\n\n如果该问题反复发生，这可能是一个 Bug，请截图并";
         dialogContent.innerHTML += "<a href='https://github.com/celesWuff/waterctl' target='_blank'>反馈给开发者</a>。";
@@ -324,10 +339,17 @@
             disconnect();
             break;
           case 0xAF: // not implemented; AE/AF key authentication for new firmwares
-          case 0xB5: // no effect; ignore
-          case 0xB8:
-          case 0xBA:
-          case 0xBC:
+          case 0xB5: // temperature settings related, no need to respond
+          case 0xB8: // unknown, no need to respond
+            break;
+          case 0xBA: // user info upload request; send BA ack to tell it we have done that (won't actually do it)
+            await txdCharacteristic.writeValue(baAck);
+            break;
+          case 0xBC: // see offlinebombFix
+            await txdCharacteristic.writeValue(offlinebombFix);
+            break;
+          case 0xC8: // start epilogue (B2) is refused
+            throw new Error("WATERCTL INTERNAL Refused");
             break;
           default:
             throw new Error("WATERCTL INTERNAL Unknown RXD dType");
