@@ -77,7 +77,7 @@
   </body>
 
   <script>
-    const VERSION = "1.1.10";
+    const VERSION = "1.2.0";
 
     // PAYLOADS
 
@@ -109,6 +109,7 @@
     // used to clear the previous unfinished offline (BB) session
     // receiving BC is a strong signal that sending this is necessary,
     // but if Offlinebomb will be used it will be safer to send this before any other command
+    // (deprecated, for reference only)
     // prettier-ignore
     const offlinebombFix = new Uint8Array([
       0xFE, 0xFE, 0x09, 0xBC,
@@ -125,10 +126,10 @@
 
     // CRC-16/ChangGong
     // width=16 poly=0x8005 init=0xe808 refin=true refout=true xorout=0x0000
-    function crc16changgong(data) {
+    function crc16changgong(str) {
       let crc = 0x1017;
-      for (let i = 0; i < data.length; i++) {
-        crc ^= data.charCodeAt(i);
+      for (let i = 0; i < str.length; i++) {
+        crc ^= str.charCodeAt(i);
         for (let j = 0; j < 8; j++) {
           if ((crc & 0x0001) == 1) {
             crc >>= 1;
@@ -136,6 +137,24 @@
           } else crc >>= 1;
         }
       }
+      return crc;
+    }
+
+    // CRC-16/CGAEAF (abbrev for ChangGong AE/AF)
+    // width=16 poly=0x8005 init=0xf856 refin=true refout=true xorout=0x0075
+    // truncated to lower 8 bits
+    function crc16cgaeaf(array) {
+      let crc = 0x6a1f;
+      for (let i = 0; i < array.length; i++) {
+        crc ^= array[i];
+        for (let j = 0; j < 8; j++) {
+          if ((crc & 0x0001) == 1) {
+            crc >>= 1;
+            crc ^= 0xa001;
+          } else crc >>= 1;
+        }
+      }
+      crc = (crc ^ 0x75) & 0xff;
       return crc;
     }
 
@@ -166,6 +185,7 @@
     }
 
     // Offlinebomb exploit
+    // (deprecated, for reference only)
     function makeStartEpilogueOfflinebomb() {
       const ri = makeRandomUserId();
       const dt = makeDatetimeArray();
@@ -178,15 +198,67 @@
       ]);
     }
 
-    function makeStartEpilogueLegacy(deviceName) {
-    // the one true command to begin a session
+    async function makeUnlockKey(array) {
+      const 终极黑阴宝典 = await fetch("终极黑阴宝典.bin") // https://stackoverflow.com/a/76693814
+        .then((response) => response.blob())
+        .then((blob) => blob.stream().pipeThrough(new DecompressionStream("gzip")))
+        .then((stream) => new Response(stream).blob())
+        .then((blob) => blob.text())
+        .then((text) => JSON.parse(text));
+      let key = 终极黑阴宝典[array[1]][0][array[3]] << 16;
+      key |= 终极黑阴宝典[array[1]][1][array[2]];
+      return new Uint8Array([(key >> 24) & 0xff, (key >> 16) & 0xff, (key >> 8) & 0xff, key & 0xff]);
+    }
+
+    async function makeUnlockResponse(unlockRequestBuffer, deviceName) {
+      const unlockRequest = new Uint8Array(unlockRequestBuffer);
+      const unknownByte = unlockRequest[5]; // unknown, but we only need to echo it back
+      const nonceBytes = unlockRequest.slice(6, 8); // not nonce in crypto sense, it's an auto-incrementing number and used for key calculation
+      const mac = unlockRequest.slice(8, 10); // last 2 bytes of the MAC address
+
+      // [0x00, 0x01] => 0x0001 => (add 1) => 0x0002 => [0x00, 0x02]
+      const nonce = (nonceBytes[0] << 8) | nonceBytes[1];
+      const newNonce = nonce + 1;
+      const newNonceBytes = nonce === 0xffff ? new Uint8Array([0x01, 0x00]) : new Uint8Array([(newNonce >> 8) & 0xff, newNonce & 0xff]); // bug-for-bug compatible
+
+      const rawKey = await makeUnlockKey(new Uint8Array([nonceBytes[0], nonceBytes[1], mac[0], mac[1]])); // 2 bytes of nonce, 2 bytes of MAC
+
+      const mask = deviceName
+        .slice(-4)
+        .split("")
+        .map((x) => x.charCodeAt(0) - 0x30);
+      const key = rawKey.map((x, i) => x ^ mask[i]);
+
+      // prettier-ignore
+      const checksumInput = new Uint8Array([
+        unknownByte,
+        ...newNonceBytes, // 2 bytes of nonce
+        ...key, // 4 bytes of key
+        0xFE, 0x87, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00
+      ]);
+
+      const checksum = crc16cgaeaf(checksumInput);
+
+      // prettier-ignore
+      const finalPayload = new Uint8Array([
+        0xFE, 0xFE, 0x09, 0xAF,
+        checksum, ...checksumInput // 1 byte of checksum, 15 bytes of the rest
+      ]);
+
+      return finalPayload;
+    }
+
+    function makeStartEpilogue(deviceName, isKeyAuthPresent = false) {
+      // the one true command to begin a session
       const checksum = crc16changgong(deviceName.slice(-5));
+      const mn = isKeyAuthPresent ? 0x0b : 0xff; // magic number
       const ri = makeRandomUserId();
       const dt = makeDatetimeArray();
       // prettier-ignore
       return new Uint8Array([
         0xFE, 0xFE, 0x09, 0xB2,
-        0x01, checksum & 0xFF, checksum >> 8, 0xFF,
+        0x01, checksum & 0xFF, checksum >> 8, mn,
         0x00, ...ri, ...dt, // 2 bytes of random user id, 6 bytes of datetime
         0x0F, 0x27, 0x00
       ]);
@@ -197,7 +269,7 @@
     let txdCharacteristic;
     let rxdCharacteristic;
     let isStarted = false;
-    let pendingStartEpilogueLegacy; // workaround for determining new firmware, see handleRxdNotifications
+    let pendingStartEpilogue; // workaround for determining new firmware, see handleRxdNotifications
     let pendingTimeoutMessage; // if we don't get a response in time, we should show an error message
     const logs = [];
 
@@ -248,7 +320,7 @@
       if (bluetoothDevice) await bluetoothDevice.gatt.disconnect();
       isStarted = false;
       logs.length = 0;
-      clearTimeout(pendingStartEpilogueLegacy);
+      clearTimeout(pendingStartEpilogue);
       clearTimeout(pendingTimeoutMessage);
       updateUi("standby");
     }
@@ -324,29 +396,30 @@
         // https://github.com/prettier/prettier/issues/5158
         // prettier-ignore
         switch (dType) {
-          case 0xB0: // start prologue ok; try legacy start epilogue first, since Offlinebomb may deadlock some old firmwares
+          case 0xB0: // start prologue ok; delay 500ms for key authentication request (AE) if this is a new firmware
           case 0xB1:
-            clearTimeout(pendingStartEpilogueLegacy);
-            pendingStartEpilogueLegacy = setTimeout(() => {
-              txdCharacteristic.writeValue(makeStartEpilogueLegacy(bluetoothDevice.name));
-            }, 1000);
+            clearTimeout(pendingStartEpilogue);
+            pendingStartEpilogue = setTimeout(() => {
+              txdCharacteristic.writeValue(makeStartEpilogue(bluetoothDevice.name));
+            }, 500);
             break;
-          case 0xAE: // receiving an unlock request (AE), this is a new firmware; send start epilogue (Offlinebomb)
-            await txdCharacteristic.writeValue(offlinebombFix);
-            await new Promise((_) => setTimeout(_, 300));
-            await txdCharacteristic.writeValue(makeStartEpilogueOfflinebomb());
+          case 0xAE: // receiving an unlock request (AE), this is a new firmware
+            clearTimeout(pendingStartEpilogue);
+            await txdCharacteristic.writeValue(await makeUnlockResponse(value.buffer, bluetoothDevice.name));
+            break;
+          case 0xAF: // key authentication ok; continue to send start epilogue (B2)
+            txdCharacteristic.writeValue(makeStartEpilogue(bluetoothDevice.name, true));
             break;
           case 0xB2: // start ok; update ui
-            clearTimeout(pendingStartEpilogueLegacy);
+            clearTimeout(pendingStartEpilogue);
             clearTimeout(pendingTimeoutMessage);
             isStarted = true;
             updateUi("ok");
             break;
-          case 0xB3: // end prologue ok; disconnect
+          case 0xB3: // end prologue ok (B3); disconnect
             await txdCharacteristic.writeValue(endEpilogue);
             disconnect();
             break;
-          case 0xAF: // not implemented; AE/AF key authentication for new firmwares
           case 0xB5: // temperature settings related, no need to respond
           case 0xB8: // unknown, no need to respond
             break;
@@ -405,9 +478,6 @@
 
     async function end() {
       try {
-        updateUi("pending");
-        await txdCharacteristic.writeValue(offlinebombFix);
-        await new Promise((_) => setTimeout(_, 300));
         await txdCharacteristic.writeValue(endPrologue);
         setupTimeoutMessage();
       } catch (error) {
