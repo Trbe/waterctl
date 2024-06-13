@@ -204,7 +204,7 @@
         .then((blob) => blob.stream().pipeThrough(new DecompressionStream("gzip")))
         .then((stream) => new Response(stream).blob())
         .then((blob) => blob.text())
-        .then((text) => JSON.parse(text));
+        .then(JSON.parse);
       let key = 终极黑阴宝典[array[1]][0][array[3]] << 16;
       key |= 终极黑阴宝典[array[1]][1][array[2]];
       return new Uint8Array([(key >> 24) & 0xff, (key >> 16) & 0xff, (key >> 8) & 0xff, key & 0xff]);
@@ -221,7 +221,7 @@
       const newNonce = nonce + 1;
       const newNonceBytes = nonce === 0xffff ? new Uint8Array([0x01, 0x00]) : new Uint8Array([(newNonce >> 8) & 0xff, newNonce & 0xff]); // bug-for-bug compatible
 
-      const rawKey = await makeUnlockKey(new Uint8Array([nonceBytes[0], nonceBytes[1], mac[0], mac[1]])); // 2 bytes of nonce, 2 bytes of MAC
+      const rawKey = await makeUnlockKey(new Uint8Array([...nonceBytes, ...mac])); // 2 bytes of nonce, 2 bytes of MAC
 
       const mask = deviceName
         .slice(-4)
